@@ -9,8 +9,8 @@ pipeline {
     environment {
         // Use Python from virtual environment (most reliable approach)
         // This works regardless of which Python version is installed globally
-        PYTHON = "venv\\Scripts\\python.exe"
-        PIP = "venv\\Scripts\\pip.exe"
+        PYTHON = "venv/Scripts/python.exe"
+        PIP = "venv/Scripts/pip.exe"
         DOCKER_HUB_REPO = 'swarajwadkar/ml-api'
         IMAGE_TAG = "${BUILD_NUMBER}"
         LATEST_TAG = 'latest'
@@ -46,7 +46,7 @@ pipeline {
                     )
                     
                     echo.
-                    echo Virtual environment ready
+                    echo Virtual environment ready at: venv/Scripts/python.exe
                 '''
             }
         }
@@ -101,7 +101,7 @@ pipeline {
                     
                     echo.
                     echo Model files created:
-                    dir model\*.pkl
+                    dir model/*.pkl
                 '''
             }
         }
