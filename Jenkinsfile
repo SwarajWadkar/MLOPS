@@ -131,23 +131,34 @@ pipeline {
                     echo Starting container for testing...
                     docker run --rm -d --name ml-api-test -p 8000:8000 %DOCKER_HUB_REPO%:%IMAGE_TAG%
                     
-                    echo Waiting for container to be ready...
-                    timeout /t 10
+                    echo Waiting for API to be ready...
                     
-                    echo Verifying container is running...
-                    docker ps -f name=ml-api-test
+                    setlocal enabledelayedexpansion
+                    set /a retries=10
                     
-                    echo.
-                    echo Testing API health endpoint...
-                    curl -s http://localhost:8000/ > nul
+                    :retry
+                    curl -s http://localhost:8000/ >nul 2>&1
                     
-                    if errorlevel 1 (
-                        echo Health check failed!
+                    if !errorlevel!==0 (
+                        echo API is ready!
+                        goto done
+                    )
+                    
+                    set /a retries-=1
+                    
+                    if !retries!==0 (
+                        echo Health check failed after 10 attempts!
                         docker logs ml-api-test
                         docker stop ml-api-test 2>nul
                         exit /b 1
                     )
                     
+                    echo Waiting for container startup (attempt !retries! remaining)...
+                    ping -n 2 127.0.0.1 >nul
+                    
+                    goto retry
+                    
+                    :done
                     echo.
                     echo Health check passed!
                     docker stop ml-api-test
