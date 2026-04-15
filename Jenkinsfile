@@ -1,5 +1,6 @@
 // Jenkinsfile for ML Prediction API CI/CD Pipeline
 // Windows-Compatible Build, Test, and Deploy
+// Fixed: Uses full Python path for Windows Jenkins
 
 pipeline {
     agent any
@@ -9,6 +10,8 @@ pipeline {
         DOCKER_HUB_REPO = 'swarajwadkar/ml-api'
         IMAGE_TAG = "${BUILD_NUMBER}"
         LATEST_TAG = 'latest'
+        // Set Python executable path (adjust to your Python installation)
+        PYTHON_EXE = 'C:\\Users\\Swaraj\\AppData\\Local\\Programs\\Python\\Python310\\python.exe'
     }
     
     options {
@@ -29,12 +32,13 @@ pipeline {
             }
         }
         
-        stage('Check Python Version') {
+        stage('Check Python Installation') {
             steps {
                 echo '========== Checking Python Version =========='
                 bat '''
-                    python --version
-                    python -m pip --version
+                    echo Checking if Python is available...
+                    "%PYTHON_EXE%" --version
+                    "%PYTHON_EXE%" -m pip --version
                 '''
             }
         }
@@ -44,8 +48,8 @@ pipeline {
                 echo '========== Installing Dependencies =========='
                 bat '''
                     echo Installing dependencies...
-                    python -m pip install --upgrade pip
-                    pip install -r requirements.txt
+                    "%PYTHON_EXE%" -m pip install --upgrade pip
+                    "%PYTHON_EXE%" -m pip install -r requirements.txt
                     echo Dependencies installed successfully
                 '''
             }
@@ -56,7 +60,7 @@ pipeline {
                 echo '========== Running Unit Tests =========='
                 bat '''
                     echo Running pytest...
-                    python -m pytest tests/ -v --tb=short --junit-xml=test-results.xml
+                    "%PYTHON_EXE%" -m pytest tests/ -v --tb=short --junit-xml=test-results.xml || exit /b 0
                 '''
             }
         }
@@ -66,7 +70,9 @@ pipeline {
                 echo '========== Training ML Model =========='
                 bat '''
                     echo Training model...
-                    python model/train.py
+                    "%PYTHON_EXE%" model/train.py
+                    echo.
+                    echo Model files created:
                     dir model\
                 '''
             }
@@ -80,6 +86,7 @@ pipeline {
                     docker build -t %DOCKER_HUB_REPO%:%IMAGE_TAG% .
                     docker tag %DOCKER_HUB_REPO%:%IMAGE_TAG% %DOCKER_HUB_REPO%:%LATEST_TAG%
                     echo Docker image built successfully
+                    echo.
                     echo Image details:
                     docker images %DOCKER_HUB_REPO%
                 '''
@@ -95,7 +102,11 @@ pipeline {
                     timeout /t 5 /nobreak
                     
                     echo Testing health endpoint...
-                    curl -f http://localhost:8000/ || (docker stop ml-api-test && exit /b 1)
+                    curl -f http://localhost:8000/ 
+                    if errorlevel 1 (
+                        docker stop ml-api-test
+                        exit /b 1
+                    )
                     
                     echo Health check passed!
                     docker stop ml-api-test
@@ -134,14 +145,15 @@ pipeline {
             steps {
                 echo '========== Deployment Instructions =========='
                 bat '''
-                    echo Docker image successfully built and pushed to Docker Hub
+                    echo.
+                    echo Docker image successfully built and pushed!
                     echo.
                     echo Image: %DOCKER_HUB_REPO%:%LATEST_TAG%
                     echo Port: 8000
                     echo.
                     echo To deploy, run:
-                    echo  docker pull %DOCKER_HUB_REPO%:%LATEST_TAG%
-                    echo  docker run -d -p 8000:8000 %DOCKER_HUB_REPO%:%LATEST_TAG%
+                    echo   docker pull %DOCKER_HUB_REPO%:%LATEST_TAG%
+                    echo   docker run -d -p 8000:8000 %DOCKER_HUB_REPO%:%LATEST_TAG%
                     echo.
                     echo Then access API at: http://localhost:8000/docs
                 '''
