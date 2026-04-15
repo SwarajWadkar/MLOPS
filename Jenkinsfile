@@ -1,17 +1,19 @@
 // Jenkinsfile for ML Prediction API CI/CD Pipeline
 // Windows-Compatible Build, Test, and Deploy
-// Fixed: Uses full Python path for Windows Jenkins
+// Fixed: Uses virtual environment Python path (most reliable)
 
 pipeline {
     agent any
     
     // Environment variables
     environment {
+        // Use Python from virtual environment (most reliable approach)
+        // This works regardless of which Python version is installed globally
+        PYTHON = "venv\\Scripts\\python.exe"
+        PIP = "venv\\Scripts\\pip.exe"
         DOCKER_HUB_REPO = 'swarajwadkar/ml-api'
         IMAGE_TAG = "${BUILD_NUMBER}"
         LATEST_TAG = 'latest'
-        // Set Python executable path (adjust to your Python installation)
-        PYTHON_EXE = 'C:\\Users\\Swaraj\\AppData\\Local\\Programs\\Python\\Python310\\python.exe'
     }
     
     options {
@@ -32,13 +34,33 @@ pipeline {
             }
         }
         
+        stage('Setup Virtual Environment') {
+            steps {
+                echo '========== Setting Up Python Virtual Environment =========='
+                bat '''
+                    echo Creating virtual environment...
+                    if not exist venv (
+                        python -m venv venv
+                    ) else (
+                        echo Virtual environment already exists
+                    )
+                    
+                    echo.
+                    echo Virtual environment ready
+                '''
+            }
+        }
+        
         stage('Check Python Installation') {
             steps {
                 echo '========== Checking Python Version =========='
                 bat '''
-                    echo Checking if Python is available...
-                    "%PYTHON_EXE%" --version
-                    "%PYTHON_EXE%" -m pip --version
+                    echo Python executable:
+                    "%PYTHON%" --version
+                    
+                    echo.
+                    echo Pip version:
+                    "%PIP%" --version
                 '''
             }
         }
@@ -47,20 +69,25 @@ pipeline {
             steps {
                 echo '========== Installing Dependencies =========='
                 bat '''
-                    echo Installing dependencies...
-                    "%PYTHON_EXE%" -m pip install --upgrade pip
-                    "%PYTHON_EXE%" -m pip install -r requirements.txt
+                    echo Upgrading pip...
+                    "%PYTHON%" -m pip install --upgrade pip
+                    
+                    echo.
+                    echo Installing requirements...
+                    "%PIP%" install -r requirements.txt
+                    
+                    echo.
                     echo Dependencies installed successfully
                 '''
             }
         }
         
-        stage('Unit Tests') {
+        stage('Code Quality & Tests') {
             steps {
-                echo '========== Running Unit Tests =========='
+                echo '========== Running Tests =========='
                 bat '''
                     echo Running pytest...
-                    "%PYTHON_EXE%" -m pytest tests/ -v --tb=short --junit-xml=test-results.xml || exit /b 0
+                    "%PYTHON%" -m pytest tests/ -v --tb=short --junit-xml=test-results.xml || exit /b 0
                 '''
             }
         }
@@ -69,11 +96,12 @@ pipeline {
             steps {
                 echo '========== Training ML Model =========='
                 bat '''
-                    echo Training model...
-                    "%PYTHON_EXE%" model/train.py
+                    echo Training machine learning model...
+                    "%PYTHON%" model/train.py
+                    
                     echo.
                     echo Model files created:
-                    dir model\
+                    dir model\*.pkl
                 '''
             }
         }
@@ -82,12 +110,14 @@ pipeline {
             steps {
                 echo '========== Building Docker Image =========='
                 bat '''
-                    echo Building Docker image: %DOCKER_HUB_REPO%:%IMAGE_TAG%
+                    echo Building Docker image...
+                    echo Image: %DOCKER_HUB_REPO%:%IMAGE_TAG%
+                    
                     docker build -t %DOCKER_HUB_REPO%:%IMAGE_TAG% .
                     docker tag %DOCKER_HUB_REPO%:%IMAGE_TAG% %DOCKER_HUB_REPO%:%LATEST_TAG%
-                    echo Docker image built successfully
+                    
                     echo.
-                    echo Image details:
+                    echo Docker image built successfully
                     docker images %DOCKER_HUB_REPO%
                 '''
             }
@@ -99,15 +129,19 @@ pipeline {
                 bat '''
                     echo Starting container for testing...
                     docker run --rm -d --name ml-api-test -p 8000:8000 %DOCKER_HUB_REPO%:%IMAGE_TAG%
+                    
                     timeout /t 5 /nobreak
                     
-                    echo Testing health endpoint...
-                    curl -f http://localhost:8000/ 
+                    echo Testing API health endpoint...
+                    curl -f http://localhost:8000/
+                    
                     if errorlevel 1 (
+                        echo Health check failed!
                         docker stop ml-api-test
                         exit /b 1
                     )
                     
+                    echo.
                     echo Health check passed!
                     docker stop ml-api-test
                 '''
@@ -125,37 +159,50 @@ pipeline {
                         echo Logging into Docker Hub...
                         docker login -u %DOCKER_USER% -p %DOCKER_PASS%
                         
-                        echo Pushing image: %DOCKER_HUB_REPO%:%IMAGE_TAG%
+                        if errorlevel 1 (
+                            echo Docker login failed!
+                            exit /b 1
+                        )
+                        
+                        echo.
+                        echo Pushing %IMAGE_TAG% tag...
                         docker push %DOCKER_HUB_REPO%:%IMAGE_TAG%
                         
-                        echo Pushing image: %DOCKER_HUB_REPO%:%LATEST_TAG%
+                        echo.
+                        echo Pushing %LATEST_TAG% tag...
                         docker push %DOCKER_HUB_REPO%:%LATEST_TAG%
                         
-                        echo Images pushed successfully
+                        echo.
+                        echo Images pushed successfully to Docker Hub
                         docker logout
                     '''
                 }
             }
         }
         
-        stage('Deploy Instructions') {
+        stage('Deployment Summary') {
             when {
                 branch 'main'
             }
             steps {
-                echo '========== Deployment Instructions =========='
+                echo '========== Deployment Information =========='
                 bat '''
                     echo.
-                    echo Docker image successfully built and pushed!
+                    echo Build and deployment completed successfully!
                     echo.
-                    echo Image: %DOCKER_HUB_REPO%:%LATEST_TAG%
-                    echo Port: 8000
+                    echo Docker Image Details:
+                    echo   Repository: %DOCKER_HUB_REPO%
+                    echo   Latest Tag: %LATEST_TAG%
+                    echo   Build Tag: %IMAGE_TAG%
+                    echo   Port: 8000
                     echo.
-                    echo To deploy, run:
+                    echo To deploy the image, run:
                     echo   docker pull %DOCKER_HUB_REPO%:%LATEST_TAG%
                     echo   docker run -d -p 8000:8000 %DOCKER_HUB_REPO%:%LATEST_TAG%
                     echo.
-                    echo Then access API at: http://localhost:8000/docs
+                    echo Then access the API at:
+                    echo   http://localhost:8000/docs
+                    echo.
                 '''
             }
         }
@@ -168,15 +215,15 @@ pipeline {
         }
         
         success {
-            echo '========== Pipeline SUCCESS! =========='
+            echo '========== Build SUCCESS =========='
         }
         
         failure {
-            echo '========== Pipeline FAILED! =========='
+            echo '========== Build FAILED =========='
         }
         
         unstable {
-            echo '========== Pipeline is UNSTABLE =========='
+            echo '========== Build UNSTABLE =========='
         }
     }
 }
