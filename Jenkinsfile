@@ -102,7 +102,7 @@ pipeline {
                     
                     echo.
                     echo Model files created:
-                    dir model/*.pkl
+                    dir model\\*.pkl
                 '''
             }
         }
