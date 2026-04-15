@@ -131,14 +131,20 @@ pipeline {
                     echo Starting container for testing...
                     docker run --rm -d --name ml-api-test -p 8000:8000 %DOCKER_HUB_REPO%:%IMAGE_TAG%
                     
-                    timeout /t 5 /nobreak
+                    echo Waiting for container to be ready...
+                    timeout /t 10
                     
+                    echo Verifying container is running...
+                    docker ps -f name=ml-api-test
+                    
+                    echo.
                     echo Testing API health endpoint...
-                    curl -f http://localhost:8000/
+                    curl -s http://localhost:8000/ > nul
                     
                     if errorlevel 1 (
                         echo Health check failed!
-                        docker stop ml-api-test
+                        docker logs ml-api-test
+                        docker stop ml-api-test 2>nul
                         exit /b 1
                     )
                     
