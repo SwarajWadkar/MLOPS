@@ -69,15 +69,16 @@ pipeline {
             steps {
                 echo '========== Installing Dependencies =========='
                 bat '''
-                    echo Upgrading pip...
+                    echo Installing build tools first...
                     "%PYTHON%" -m pip install --upgrade pip
+                    "%PYTHON%" -m pip install setuptools wheel build
                     
                     echo.
-                    echo Installing requirements...
-                    "%PIP%" install -r requirements.txt
+                    echo Installing project requirements...
+                    "%PYTHON%" -m pip install -r requirements.txt
                     
                     echo.
-                    echo Dependencies installed successfully
+                    echo All dependencies installed successfully
                 '''
             }
         }
