@@ -11,6 +11,7 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(
@@ -240,10 +241,13 @@ async def model_info():
 async def http_exception_handler(request, exc):
     """Custom HTTP exception handler with logging"""
     logger.error(f"HTTP Exception: {exc.detail}")
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
 
 
 if __name__ == "__main__":
