@@ -6,8 +6,8 @@ Provides endpoints for health check and price prediction
 import logging
 import os
 import joblib
+import numpy as np
 from typing import Optional, List
-from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,33 +44,45 @@ def load_model():
         model = joblib.load(MODEL_PATH)
         scaler = joblib.load(SCALER_PATH)
         logger.info("✓ Model and scaler loaded successfully")
+        logger.info(f"  Model type: {type(model).__name__}")
+        logger.info(f"  Scaler type: {type(scaler).__name__}")
         return True
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
         return False
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Lifespan context manager for startup and shutdown events
-    """
-    # Startup
-    logger.info("Starting up ML Prediction API...")
-    if not load_model():
-        logger.warning("Model not loaded on startup")
-    yield
-    # Shutdown
-    logger.info("Shutting down ML Prediction API...")
-
-
-# Initialize FastAPI app with lifespan
+# Initialize FastAPI app
 app = FastAPI(
     title="ML Housing Price Prediction API",
     description="API for predicting house prices using scikit-learn model",
-    version="1.0.0",
-    lifespan=lifespan
+    version="1.0.0"
 )
+
+
+# Startup event - load model when app starts
+@app.on_event("startup")
+async def startup_event():
+    """
+    Startup event handler - load model and scaler
+    """
+    logger.info("Starting up ML Prediction API...")
+    logger.info(f"Looking for model at: {MODEL_PATH}")
+    logger.info(f"Looking for scaler at: {SCALER_PATH}")
+    
+    if load_model():
+        logger.info("✓ Model initialization successful")
+    else:
+        logger.error("✗ Model initialization failed - API will return 503 for predictions")
+
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Shutdown event handler
+    """
+    logger.info("Shutting down ML Prediction API...")
 
 # Add CORS middleware
 app.add_middleware(
@@ -141,20 +153,19 @@ async def predict(features: HouseFeatures):
     Returns:
         PredictionResponse with predicted price
     """
+    # Check if model is loaded FIRST
+    if model is None or scaler is None:
+        logger.error("Model or scaler not loaded - cannot make prediction")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model not loaded. Please try again later."
+        )
+    
     try:
-        # Check if model is loaded
-        if model is None or scaler is None:
-            logger.error("Model or scaler not loaded")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Model not loaded. Please try again later."
-            )
-        
         logger.info(f"Prediction request received: {features}")
         
-        # Prepare input features
-        import numpy as np
-        X = np.array([[
+        # Prepare input features as numpy array
+        input_array = np.array([[
             features.square_feet,
             features.bedrooms,
             features.bathrooms,
@@ -162,31 +173,34 @@ async def predict(features: HouseFeatures):
             features.location_score
         ]])
         
-        # Scale features
-        X_scaled = scaler.transform(X)
+        # Scale features using loaded scaler
+        scaled_features = scaler.transform(input_array)
         
-        # Make prediction
-        predicted_price = model.predict(X_scaled)[0]
+        # Make prediction using loaded model
+        prediction = model.predict(scaled_features)
+        predicted_price = float(prediction[0])
         
         logger.info(f"Prediction made: ${predicted_price:,.2f}")
         
-        return {
-            "predicted_price": float(predicted_price),
+        # Return response as dict (NOT callable)
+        response = {
+            "predicted_price": predicted_price,
             "input_features": features.dict(),
             "model_version": "1.0.0"
         }
+        return response
         
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        logger.error(f"Feature validation error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid input: {str(e)}"
+            detail=f"Invalid input features: {str(e)}"
         )
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred during prediction"
+            detail="An error occurred during prediction. Please check logs."
         )
 
 
@@ -194,14 +208,17 @@ async def predict(features: HouseFeatures):
 async def model_info():
     """
     Get information about the loaded model
+    Returns model metadata and status
     """
-    if model is None:
+    if model is None or scaler is None:
+        logger.error("Model info requested but model not loaded")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model not loaded"
+            detail="Model not loaded. Please try again later."
         )
     
-    return {
+    # Return model information as dict
+    info_response = {
         "model_type": "LinearRegression",
         "model_version": "1.0.0",
         "features": [
@@ -214,6 +231,7 @@ async def model_info():
         "target": "price",
         "status": "loaded"
     }
+    return info_response
 
 
 # Error handlers
